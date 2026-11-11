@@ -1,0 +1,39 @@
+{
+    "gateway": "PS-NORTH-GW1",
+    "received": 8,
+    "loaded": [],
+    "refused": [
+        {
+            "tag": "AH001.TEMP",
+            "reason": "Maximo refused it: HTTP 400: BMXAA2907E - Measurements cannot share the same measurement date and time."
+        },
+        {
+            "tag": "AH001.VIB",
+            "reason": "Maximo refused it: HTTP 400: BMXAA2907E - Measurements cannot share the same measurement date and time."
+        },
+        {
+            "tag": "AH002.TEMP",
+            "reason": "Maximo refused it: HTTP 400: BMXAA2907E - Measurements cannot share the same measurement date and time."
+        },
+        {
+            "tag": "AH004.VIB",
+            "reason": "Maximo refused it: HTTP 400: BMXAA2907E - Measurements cannot share the same measurement date and time."
+        },
+        {
+            "tag": "AH006.TEMP",
+            "reason": "Maximo refused it: HTTP 400: BMXAA2907E - Measurements cannot share the same measurement date and time."
+        },
+        {
+            "tag": "AH003.TEMP",
+            "reason": "temperature unit must be C or F"
+        },
+        {
+            "tag": "AH099.TEMP",
+            "reason": "Maximo refused it: HTTP 400: BMXAA5520E - The value for ASSETNUM AH099 or WORKORDER null for SITEID BEDFORD is not valid."
+        },
+        {
+            "tag": "AH005.FLOW",
+            "reason": "unknown measurement FLOW"
+        }
+    ]
+}

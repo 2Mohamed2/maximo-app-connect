@@ -1,0 +1,50 @@
+{
+    "gateway": "PS-NORTH-GW1",
+    "received": 8,
+    "loaded": [
+        {
+            "tag": "AH001.TEMP",
+            "asset": "AH001",
+            "meter": "TEMP-F",
+            "value": 88.7
+        },
+        {
+            "tag": "AH001.VIB",
+            "asset": "AH001",
+            "meter": "VIBRATIONH",
+            "value": 0.063
+        },
+        {
+            "tag": "AH002.TEMP",
+            "asset": "AH002",
+            "meter": "TEMP-F",
+            "value": 104.0
+        },
+        {
+            "tag": "AH004.VIB",
+            "asset": "AH004",
+            "meter": "VIBRATIONH",
+            "value": 0.236
+        },
+        {
+            "tag": "AH006.TEMP",
+            "asset": "AH006",
+            "meter": "TEMP-F",
+            "value": 84.2
+        }
+    ],
+    "refused": [
+        {
+            "tag": "AH003.TEMP",
+            "reason": "temperature unit must be C or F"
+        },
+        {
+            "tag": "AH099.TEMP",
+            "reason": "Maximo refused it: HTTP 400: BMXAA5520E - The value for ASSETNUM AH099 or WORKORDER null for SITEID BEDFORD is not valid."
+        },
+        {
+            "tag": "AH005.FLOW",
+            "reason": "unknown measurement FLOW"
+        }
+    ]
+}

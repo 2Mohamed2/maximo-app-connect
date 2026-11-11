@@ -1,0 +1,65 @@
+-- A stand-in for the ERP's journal API, so the lab runs without a real ERP.
+--   POST /erp/journals   post a journal; the reference is the idempotency key (same reference = same journal)
+--   GET  /erp/journals   list what was posted
+--   POST /erp/outage     {"on": true|false}: answer 503 to every journal post, to test retries
+CREATE COMPUTE MODULE ErpMock
+  DECLARE ledger SHARED ROW;
+  DECLARE nextNo SHARED INTEGER 4001;
+  DECLARE outage SHARED BOOLEAN FALSE;
+
+  CREATE FUNCTION Main() RETURNS BOOLEAN
+  BEGIN
+    DECLARE cmd CHARACTER InputRoot.HTTPInputHeader."X-Original-HTTP-Command";
+    DECLARE verb CHARACTER SUBSTRING(cmd BEFORE ' ');
+    SET OutputLocalEnvironment = InputLocalEnvironment;
+    SET OutputRoot.Properties = InputRoot.Properties;
+    SET OutputRoot.Properties.ContentType = 'application/json';
+
+    IF CONTAINS(cmd, '/erp/outage') THEN
+      BEGIN ATOMIC
+        SET outage = COALESCE(InputRoot.JSON.Data.on, FALSE);
+      END;
+      SET OutputRoot.JSON.Data.outage = outage;
+    ELSEIF verb = 'GET' THEN
+      CREATE FIELD OutputRoot.JSON.Data.journals IDENTITY (JSON.Array)journals;
+      BEGIN ATOMIC
+        DECLARE i INTEGER 1;
+        FOR j AS ledger.journal[] DO
+          SET OutputRoot.JSON.Data.journals.Item[i] = j;
+          SET i = i + 1;
+        END FOR;
+      END;
+      SET OutputRoot.JSON.Data.count = CARDINALITY(OutputRoot.JSON.Data.journals.Item[]);
+    ELSEIF outage THEN
+      SET OutputLocalEnvironment.Destination.HTTP.ReplyStatusCode = 503;
+      SET OutputRoot.JSON.Data.error = 'ledger unavailable';
+    ELSE
+      DECLARE ref CHARACTER InputRoot.JSON.Data.reference;
+      IF ref IS NULL OR CARDINALITY(InputRoot.JSON.Data.lines.Item[]) = 0 THEN
+        SET OutputLocalEnvironment.Destination.HTTP.ReplyStatusCode = 400;
+        SET OutputRoot.JSON.Data.error = 'reference and lines are required';
+        RETURN TRUE;
+      END IF;
+      BEGIN ATOMIC
+        DECLARE known CHARACTER THE(SELECT ITEM j.journal FROM ledger.journal[] AS j WHERE j.reference = ref);
+        IF known IS NOT NULL THEN
+          SET OutputRoot.JSON.Data.journal = known;
+          SET OutputRoot.JSON.Data.duplicate = TRUE;
+        ELSE
+          DECLARE no CHARACTER 'JE-' || CAST(nextNo AS CHARACTER);
+          SET nextNo = nextNo + 1;
+          CREATE LASTCHILD OF ledger NAME 'journal';
+          SET ledger.journal[<].journal = no;
+          SET ledger.journal[<].reference = ref;
+          SET ledger.journal[<].costCenter = InputRoot.JSON.Data.costCenter;
+          SET ledger.journal[<].total = InputRoot.JSON.Data.total;
+          SET ledger.journal[<].postedAt = CAST(CURRENT_TIMESTAMP AS CHARACTER FORMAT 'yyyy-MM-dd''T''HH:mm:ss');
+          SET OutputLocalEnvironment.Destination.HTTP.ReplyStatusCode = 201;
+          SET OutputRoot.JSON.Data.journal = no;
+          SET OutputRoot.JSON.Data.status = 'POSTED';
+        END IF;
+      END;
+    END IF;
+    RETURN TRUE;
+  END;
+END MODULE;

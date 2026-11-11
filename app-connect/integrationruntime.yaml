@@ -1,0 +1,27 @@
+# The App Connect integration runtime for the two labs.
+# barURL: the address the Dashboard gives an imported BAR (Deploy integrations > Integrations > the BAR > Properties).
+# MAXIMO_APIKEY comes from the Secret maximo-api, created by the Maximo administrator; it is never in the BAR or this file.
+# ERP_URL: this lab's ERP stand-in runs in the same runtime; point it at the real ERP's journal API in production.
+apiVersion: appconnect.ibm.com/v1beta1
+kind: IntegrationRuntime
+metadata:
+  name: maximo-field-erp
+  namespace: appconnect
+spec:
+  version: '13.0'
+  license: {accept: true, license: L-RJGW-BUAA2R, use: AppConnectEnterpriseNonProduction}
+  replicas: 1
+  barURL:
+    - <the BAR URL the Dashboard shows for the imported MaximoFieldErp.bar>
+  template:
+    spec:
+      containers:
+        - name: runtime
+          resources:
+            requests: {cpu: 500m, memory: 512Mi}
+            limits: {cpu: '1', memory: 1Gi}
+          env:
+            - {name: MAXIMO_API, value: 'https://<manage-host>/maximo/api'}
+            - {name: ERP_URL, value: 'http://localhost:7800'}
+            - name: MAXIMO_APIKEY
+              valueFrom: {secretKeyRef: {name: maximo-api, key: MAXIMO_APIKEY}}

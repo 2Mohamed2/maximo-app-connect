@@ -1,0 +1,54 @@
+-- Helpers shared by every flow in MaximoFieldErp.
+
+-- Settings come from the runtime's environment (a Kubernetes Secret for the API key), never from the BAR file.
+CREATE PROCEDURE getEnv(IN name CHARACTER) RETURNS CHARACTER
+  LANGUAGE JAVA EXTERNAL NAME "java.lang.System.getenv";
+
+-- Percent-encode the characters an oslc.where clause uses.
+CREATE FUNCTION urlEncode(IN s CHARACTER) RETURNS CHARACTER
+BEGIN
+  DECLARE r CHARACTER REPLACE(s, '%', '%25');
+  SET r = REPLACE(r, ' ', '%20');
+  SET r = REPLACE(r, '"', '%22');
+  SET r = REPLACE(r, '=', '%3D');
+  SET r = REPLACE(r, '!', '%21');
+  SET r = REPLACE(r, '*', '%2A');
+  SET r = REPLACE(r, ',', '%2C');
+  SET r = REPLACE(r, '[', '%5B');
+  SET r = REPLACE(r, ']', '%5D');
+  SET r = REPLACE(r, '?', '%3F');
+  RETURN r;
+END;
+
+-- The resource id is the last part of a Maximo href (the host part is Maximo's internal address, so it is not reused).
+CREATE FUNCTION resourceId(IN href CHARACTER) RETURNS CHARACTER
+BEGIN
+  RETURN SUBSTRING(href FROM POSITION('/' IN href REPEAT -1) + 1);
+END;
+
+-- Headers for every Maximo call: the integration user's API key from the environment.
+CREATE PROCEDURE maximoHeaders(IN root REFERENCE)
+BEGIN
+  SET root.HTTPRequestHeader.apikey = getEnv('MAXIMO_APIKEY');
+  SET root.HTTPRequestHeader.Accept = 'application/json';
+  SET root.HTTPRequestHeader."Content-Type" = 'application/json';
+END;
+
+-- What a failed HTTP Request left in the message: the HTTP status and the body (on the error terminal the response
+-- body arrives unparsed, as a BLOB), or the exception text when there was no response at all.
+CREATE FUNCTION httpProblem(IN root REFERENCE, IN ex REFERENCE) RETURNS CHARACTER
+BEGIN
+  DECLARE code CHARACTER root.HTTPResponseHeader."X-Original-HTTP-Status-Code";
+  DECLARE body CHARACTER CAST(root.BLOB.BLOB AS CHARACTER CCSID 1208);
+  DECLARE msg CHARACTER;
+  IF body IS NOT NULL AND CONTAINS(body, '"message"') THEN
+    SET msg = SUBSTRING(SUBSTRING(body AFTER '"message":"') BEFORE '"');
+    IF CONTAINS(msg, '. ') THEN SET msg = SUBSTRING(msg BEFORE '. ') || '.'; END IF;   -- first sentence only
+  END IF;
+  IF code IS NULL THEN
+    DECLARE t REFERENCE TO ex;
+    WHILE LASTMOVE(t) AND t.Text IS NULL DO MOVE t LASTCHILD; END WHILE;
+    RETURN 'no response: ' || COALESCE(t.Text, 'unknown error');
+  END IF;
+  RETURN 'HTTP ' || code || ': ' || COALESCE(msg, SUBSTRING(COALESCE(body, '') FROM 1 FOR 200));
+END;

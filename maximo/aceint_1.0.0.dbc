@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE script SYSTEM "script.dtd">
+<!--
+  App Connect integration: the Maximo side.
+
+    ACEINT     security group for the integration user App Connect signs in as (API key):
+                 MXAPIWODETAIL  READ, SAVE, LOGCOMMENTS  read completed work, write back the ERP journal number and a log entry
+                 MXAPIMETERDATA READ, INSERT, SAVE       load meter readings
+               all sites, nothing else
+    GRPREASSIGNAUTH  MAXADMIN and MXINTADM may put users into ACEINT (a new group is in nobody's list)
+    ACEFIELD   instance of MeasurePointWoGenCronTask for BEDFORD, every 2 minutes: turns readings over a
+               condition monitoring action limit into work orders
+
+  Install: copy to tools/maximo/en/script, then from tools/maximo/internal
+           ./runscriptfile.sh -cscript -faceint_1.0.0
+  Re-runnable: every insert uses ignore_duplicates.
+-->
+<script author="ACEINT" scriptname="aceint_1.0.0">
+  <description>App Connect integration: ACEINT security group, group reassignment, condition monitoring cron instance.</description>
+  <statements>
+
+    <insert table="MAXGROUP" ignore_duplicates="true">
+      <insertrow>
+        <columnvalue column="GROUPNAME" string="ACEINT"/>
+        <columnvalue column="DESCRIPTION" string="App Connect integration (ERP costs, field readings)"/>
+        <columnvalue column="INDEPENDENT" boolean="true"/>
+        <columnvalue column="AUTHALLSITES" boolean="true"/>
+        <columnvalue column="AUTHALLGLS" boolean="false"/>
+        <columnvalue column="AUTHALLSTOREROOMS" boolean="false"/>
+        <columnvalue column="AUTHLABORALL" boolean="false"/>
+        <columnvalue column="AUTHLABORCREW" boolean="false"/>
+        <columnvalue column="AUTHLABORSELF" boolean="false"/>
+        <columnvalue column="AUTHLABORSUPER" boolean="false"/>
+        <columnvalue column="LANGCODE" string="EN"/>
+        <columnvalue column="AUTHPERSONGROUP" boolean="false"/>
+        <columnvalue column="HASLD" boolean="false"/>
+        <columnvalue column="NULLREPFAC" boolean="true"/>
+        <columnvalue column="AUTHALLREPFACS" boolean="false"/>
+        <columnvalue column="SIDENAV" boolean="false"/>
+      </insertrow>
+    </insert>
+
+    <insert table="APPLICATIONAUTH" ignore_duplicates="true">
+      <insertrow><columnvalue column="GROUPNAME" string="ACEINT"/><columnvalue column="APP" string="MXAPIWODETAIL"/><columnvalue column="OPTIONNAME" string="READ"/></insertrow>
+      <insertrow><columnvalue column="GROUPNAME" string="ACEINT"/><columnvalue column="APP" string="MXAPIWODETAIL"/><columnvalue column="OPTIONNAME" string="SAVE"/></insertrow>
+      <insertrow><columnvalue column="GROUPNAME" string="ACEINT"/><columnvalue column="APP" string="MXAPIWODETAIL"/><columnvalue column="OPTIONNAME" string="LOGCOMMENTS"/></insertrow>
+      <insertrow><columnvalue column="GROUPNAME" string="ACEINT"/><columnvalue column="APP" string="MXAPIMETERDATA"/><columnvalue column="OPTIONNAME" string="READ"/></insertrow>
+      <insertrow><columnvalue column="GROUPNAME" string="ACEINT"/><columnvalue column="APP" string="MXAPIMETERDATA"/><columnvalue column="OPTIONNAME" string="INSERT"/></insertrow>
+      <insertrow><columnvalue column="GROUPNAME" string="ACEINT"/><columnvalue column="APP" string="MXAPIMETERDATA"/><columnvalue column="OPTIONNAME" string="SAVE"/></insertrow>
+    </insert>
+
+    <insert table="GRPREASSIGNAUTH" ignore_duplicates="true">
+      <insertrow><columnvalue column="USERID" string="MAXADMIN"/><columnvalue column="GROUPNAME" string="ACEINT"/></insertrow>
+      <insertrow><columnvalue column="USERID" string="MXINTADM"/><columnvalue column="GROUPNAME" string="ACEINT"/></insertrow>
+    </insert>
+
+    <insert table="CRONTASKINSTANCE" ignore_duplicates="true">
+      <insertrow>
+        <columnvalue column="CRONTASKNAME" string="MeasurePointWoGenCronTask"/>
+        <columnvalue column="INSTANCENAME" string="ACEFIELD"/>
+        <columnvalue column="SCHEDULE" string="2m,*,*,*,*,*,*,*,*,*"/>
+        <columnvalue column="ACTIVE" boolean="true"/>
+        <columnvalue column="DESCRIPTION" string="Work orders from condition monitoring readings (BEDFORD)"/>
+        <columnvalue column="RUNASUSERID" string="MAXADMIN"/>
+        <columnvalue column="LANGCODE" string="EN"/>
+        <columnvalue column="HASLD" boolean="false"/>
+        <columnvalue column="AUTOREMOVAL" boolean="false"/>
+        <columnvalue column="KEEPHISTORY" boolean="true"/>
+        <columnvalue column="MAXHISTORY" number="1000"/>
+      </insertrow>
+    </insert>
+    <insert table="CRONTASKPARAM" ignore_duplicates="true">
+      <insertrow><columnvalue column="CRONTASKNAME" string="MeasurePointWoGenCronTask"/><columnvalue column="INSTANCENAME" string="ACEFIELD"/><columnvalue column="PARAMETER" string="siteid"/><columnvalue column="VALUE" string="BEDFORD"/></insertrow>
+      <insertrow><columnvalue column="CRONTASKNAME" string="MeasurePointWoGenCronTask"/><columnvalue column="INSTANCENAME" string="ACEFIELD"/><columnvalue column="PARAMETER" string="orgid"/></insertrow>
+      <insertrow><columnvalue column="CRONTASKNAME" string="MeasurePointWoGenCronTask"/><columnvalue column="INSTANCENAME" string="ACEFIELD"/><columnvalue column="PARAMETER" string="emailto"/></insertrow>
+      <insertrow><columnvalue column="CRONTASKNAME" string="MeasurePointWoGenCronTask"/><columnvalue column="INSTANCENAME" string="ACEFIELD"/><columnvalue column="PARAMETER" string="logfile"/></insertrow>
+    </insert>
+
+  </statements>
+</script>

@@ -1,0 +1,105 @@
+-- Lab B: readings from the pump station's field gateway -> Maximo condition monitoring.
+-- The gateway speaks its own language: tags like "AH001.TEMP", degrees Celsius, vibration in mm/s.
+-- Maximo's meters are TEMP-F (degrees Fahrenheit) and VIBRATIONH (inches per second).
+--   POST /field/readings  {"gateway": "...", "readings": [{"tag": "AH001.TEMP", "value": 37.2, "unit": "C", "time": "..."}]}
+--   reply                 {"received": n, "loaded": [...], "refused": [...]}
+
+CREATE COMPUTE MODULE FieldReadings_Validate
+  CREATE FUNCTION Main() RETURNS BOOLEAN
+  BEGIN
+    DECLARE r REFERENCE TO InputRoot.JSON.Data.readings.Item[1];
+    DECLARE n INTEGER 0;
+    SET Environment.Run.gateway = InputRoot.JSON.Data.gateway;
+    WHILE LASTMOVE(r) DO
+      SET n = n + 1;
+      DECLARE tag CHARACTER UPPER(TRIM(COALESCE(r.tag, '')));
+      DECLARE asset CHARACTER SUBSTRING(tag BEFORE '.');
+      DECLARE kind CHARACTER SUBSTRING(tag AFTER '.');
+      DECLARE unit CHARACTER UPPER(COALESCE(r.unit, ''));
+      DECLARE meter CHARACTER;
+      DECLARE v DECIMAL;
+      DECLARE why CHARACTER;
+
+      IF r.value IS NULL OR r.time IS NULL OR asset = '' THEN
+        SET why = 'tag, value and time are required';
+      ELSEIF kind = 'TEMP' THEN
+        SET meter = 'TEMP-F';
+        SET v = CASE unit WHEN 'C' THEN CAST(r.value AS DECIMAL) * 9 / 5 + 32 WHEN 'F' THEN CAST(r.value AS DECIMAL) ELSE NULL END;
+        IF v IS NULL THEN SET why = 'temperature unit must be C or F'; ELSEIF v < -40 OR v > 400 THEN SET why = 'temperature outside the sensor range'; END IF;
+      ELSEIF kind = 'VIB' THEN
+        SET meter = 'VIBRATIONH';
+        SET v = CASE unit WHEN 'MM/S' THEN CAST(r.value AS DECIMAL) / 25.4 WHEN 'IN/S' THEN CAST(r.value AS DECIMAL) ELSE NULL END;
+        IF v IS NULL THEN SET why = 'vibration unit must be mm/s or in/s'; ELSEIF v < 0 OR v > 4 THEN SET why = 'vibration outside the sensor range'; END IF;
+      ELSE
+        SET why = 'unknown measurement ' || COALESCE(kind, '');
+      END IF;
+
+      IF why IS NOT NULL THEN
+        CREATE LASTCHILD OF Environment.Run NAME 'refused';
+        SET Environment.Run.refused[<].tag = r.tag;
+        SET Environment.Run.refused[<].reason = why;
+      ELSE
+        SET Environment.Cur.tag = tag;
+        SET Environment.Cur.asset = asset;
+        SET Environment.Cur.meter = meter;
+        SET Environment.Cur.value = ROUND(v, 3);
+        SET OutputRoot.Properties = InputRoot.Properties;
+        CALL maximoHeaders(OutputRoot);
+        SET OutputRoot.HTTPRequestHeader."x-method-override" = 'SYNC';   -- add the reading to the existing asset meter
+        SET OutputRoot.HTTPRequestHeader.patchtype = 'MERGE';
+        SET OutputLocalEnvironment.Destination.HTTP.RequestURL = getEnv('MAXIMO_API') || '/os/mxapimeterdata?lean=1';
+        SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'POST';
+        SET OutputRoot.JSON.Data.siteid = 'BEDFORD';
+        SET OutputRoot.JSON.Data.assetnum = asset;
+        SET OutputRoot.JSON.Data.metername = meter;
+        SET OutputRoot.JSON.Data.newreading = CAST(ROUND(v, 3) AS CHARACTER);
+        SET OutputRoot.JSON.Data.newreadingdate = r.time;
+        PROPAGATE TO TERMINAL 'out';
+      END IF;
+      MOVE r NEXTSIBLING;
+    END WHILE;
+
+    -- answer the gateway
+    SET OutputLocalEnvironment = InputLocalEnvironment;
+    SET OutputRoot.Properties = InputRoot.Properties;
+    SET OutputRoot.JSON.Data.gateway = Environment.Run.gateway;
+    SET OutputRoot.JSON.Data.received = n;
+    CREATE FIELD OutputRoot.JSON.Data.loaded IDENTITY (JSON.Array)loaded;
+    DECLARE i INTEGER 1;
+    FOR e AS Environment.Run.loaded[] DO
+      SET OutputRoot.JSON.Data.loaded.Item[i] = e;
+      SET i = i + 1;
+    END FOR;
+    CREATE FIELD OutputRoot.JSON.Data.refused IDENTITY (JSON.Array)refused;
+    SET i = 1;
+    FOR e AS Environment.Run.refused[] DO
+      SET OutputRoot.JSON.Data.refused.Item[i] = e;
+      SET i = i + 1;
+    END FOR;
+    PROPAGATE TO TERMINAL 'out1';
+    RETURN FALSE;
+  END;
+END MODULE;
+
+CREATE COMPUTE MODULE FieldReadings_Loaded
+  CREATE FUNCTION Main() RETURNS BOOLEAN
+  BEGIN
+    CREATE LASTCHILD OF Environment.Run NAME 'loaded';
+    SET Environment.Run.loaded[<].tag = Environment.Cur.tag;
+    SET Environment.Run.loaded[<].asset = Environment.Cur.asset;
+    SET Environment.Run.loaded[<].meter = Environment.Cur.meter;
+    SET Environment.Run.loaded[<].value = Environment.Cur.value;
+    RETURN FALSE;
+  END;
+END MODULE;
+
+-- Maximo said no (unknown asset or meter, reading older than the last one...): keep Maximo's own message.
+CREATE COMPUTE MODULE FieldReadings_Refused
+  CREATE FUNCTION Main() RETURNS BOOLEAN
+  BEGIN
+    CREATE LASTCHILD OF Environment.Run NAME 'refused';
+    SET Environment.Run.refused[<].tag = Environment.Cur.tag;
+    SET Environment.Run.refused[<].reason = 'Maximo refused it: ' || httpProblem(InputRoot, InputExceptionList);
+    RETURN FALSE;
+  END;
+END MODULE;

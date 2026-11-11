@@ -1,0 +1,86 @@
+-- Lab A: completed pump station work orders -> ERP journals -> journal number back on the work order.
+-- Maximo is the record of the work, the ERP the record of the money. A work order is posted once: the query only
+-- picks work orders without EXTERNALREFID, and the ERP treats the reference as an idempotency key.
+
+-- 1. Ask Maximo for completed, not yet posted work orders of the pump station cost centre.
+CREATE COMPUTE MODULE WoCostSync_Query
+  CREATE FUNCTION Main() RETURNS BOOLEAN
+  BEGIN
+    DECLARE where CHARACTER 'siteid="BEDFORD" and status="COMP" and externalrefid!="*" and glaccount="6000-200-???"';
+    SET OutputRoot.Properties = InputRoot.Properties;
+    CALL maximoHeaders(OutputRoot);
+    SET OutputLocalEnvironment.Destination.HTTP.RequestURL = getEnv('MAXIMO_API')
+      || '/os/mxapiwodetail?lean=1&oslc.pageSize=20'
+      || '&oslc.select=wonum,description,assetnum,siteid,glaccount,actlabcost,actmatcost,statusdate'
+      || '&oslc.where=' || urlEncode(where);
+    SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'GET';
+    RETURN TRUE;
+  END;
+END MODULE;
+
+-- 2. One ERP journal per work order: a labour line and a material line on the cost centre from the GL account.
+CREATE COMPUTE MODULE WoCostSync_Map
+  CREATE FUNCTION Main() RETURNS BOOLEAN
+  BEGIN
+    DECLARE wo REFERENCE TO InputRoot.JSON.Data.member.Item[1];
+    WHILE LASTMOVE(wo) DO
+      DECLARE gl CHARACTER wo.glaccount;                       -- 6000-200-???: account-costcentre-element
+      DECLARE lab DECIMAL COALESCE(wo.actlabcost, 0);
+      DECLARE mat DECIMAL COALESCE(wo.actmatcost, 0);
+      SET Environment.Wo.rid = resourceId(wo.href);
+      SET Environment.Wo.wonum = wo.wonum;
+
+      SET OutputRoot.Properties = InputRoot.Properties;
+      SET OutputRoot.HTTPRequestHeader."Content-Type" = 'application/json';
+      SET OutputLocalEnvironment.Destination.HTTP.RequestURL = getEnv('ERP_URL') || '/erp/journals';
+      SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'POST';
+
+      SET OutputRoot.JSON.Data.reference = 'MAXIMO-' || wo.siteid || '-' || wo.wonum;
+      SET OutputRoot.JSON.Data.costCenter = SUBSTRING(gl FROM 6 FOR 3);
+      SET OutputRoot.JSON.Data.postingDate = SUBSTRING(wo.statusdate FROM 1 FOR 10);
+      SET OutputRoot.JSON.Data.text = wo.wonum || ' ' || wo.assetnum || ' ' || wo.description;
+      CREATE FIELD OutputRoot.JSON.Data.lines IDENTITY (JSON.Array)lines;
+      SET OutputRoot.JSON.Data.lines.Item[1].account = REPLACE(gl, '???', '300');
+      SET OutputRoot.JSON.Data.lines.Item[1].type = 'LABOR';
+      SET OutputRoot.JSON.Data.lines.Item[1].amount = lab;
+      SET OutputRoot.JSON.Data.lines.Item[2].account = REPLACE(gl, '???', '200');
+      SET OutputRoot.JSON.Data.lines.Item[2].type = 'MATERIAL';
+      SET OutputRoot.JSON.Data.lines.Item[2].amount = mat;
+      SET OutputRoot.JSON.Data.total = lab + mat;
+      PROPAGATE TO TERMINAL 'out';                              -- one journal at a time, then the next work order
+      MOVE wo NEXTSIBLING;
+    END WHILE;
+    RETURN FALSE;
+  END;
+END MODULE;
+
+-- 3. The ERP answered with a journal number: store it on the work order and leave a log entry for the planner.
+CREATE COMPUTE MODULE WoCostSync_WriteBack
+  CREATE FUNCTION Main() RETURNS BOOLEAN
+  BEGIN
+    DECLARE jno CHARACTER InputRoot.JSON.Data.journal;
+    SET OutputRoot.Properties = InputRoot.Properties;
+    CALL maximoHeaders(OutputRoot);
+    SET OutputRoot.HTTPRequestHeader."x-method-override" = 'PATCH';
+    SET OutputRoot.HTTPRequestHeader.patchtype = 'MERGE';
+    SET OutputLocalEnvironment.Destination.HTTP.RequestURL = getEnv('MAXIMO_API')
+      || '/os/mxapiwodetail/' || Environment.Wo.rid || '?lean=1';
+    SET OutputLocalEnvironment.Destination.HTTP.RequestLine.Method = 'POST';
+    SET OutputRoot.JSON.Data.externalrefid = jno;
+    CREATE FIELD OutputRoot.JSON.Data.worklog IDENTITY (JSON.Array)worklog;
+    SET OutputRoot.JSON.Data.worklog.Item[1].logtype = 'UPDATE';
+    SET OutputRoot.JSON.Data.worklog.Item[1].description = 'Costs posted to ERP journal ' || jno;
+    RETURN TRUE;
+  END;
+END MODULE;
+
+-- Any failure (ERP down, Maximo refusing): nothing is written back, so the work order is picked up again next minute.
+CREATE COMPUTE MODULE WoCostSync_Failure
+  CREATE FUNCTION Main() RETURNS BOOLEAN
+  BEGIN
+    -- BIP2951 in the integration server log: which work order, and what the other side said
+    LOG EVENT SEVERITY 2 CATALOG 'BIPmsgs' MESSAGE 2951
+      VALUES('WoCostSync', COALESCE(Environment.Wo.wonum, 'query'), httpProblem(InputRoot, InputExceptionList));
+    RETURN FALSE;
+  END;
+END MODULE;

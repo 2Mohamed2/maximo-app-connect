@@ -1,0 +1,11 @@
+{"gateway": "PS-NORTH-GW1",
+ "readings": [
+  {"tag": "AH001.TEMP", "value": 31.5, "unit": "C",    "time": "2026-11-11T12:22:00+00:00"},
+  {"tag": "AH001.VIB",  "value": 1.6,  "unit": "mm/s", "time": "2026-11-11T12:22:00+00:00"},
+  {"tag": "AH002.TEMP", "value": 40.0, "unit": "C",    "time": "2026-11-11T12:22:00+00:00"},
+  {"tag": "AH004.VIB",  "value": 6.0,  "unit": "mm/s", "time": "2026-11-11T12:22:00+00:00"},
+  {"tag": "AH006.TEMP", "value": 29.0, "unit": "C",    "time": "2026-11-11T12:22:00+00:00"},
+  {"tag": "AH003.TEMP", "value": 88,   "unit": "K",    "time": "2026-11-11T12:22:00+00:00"},
+  {"tag": "AH099.TEMP", "value": 30.0, "unit": "C",    "time": "2026-11-11T12:22:00+00:00"},
+  {"tag": "AH005.FLOW", "value": 12,   "unit": "l/s",  "time": "2026-11-11T12:22:00+00:00"}
+ ]}
